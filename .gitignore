@@ -1,0 +1,10 @@
+*.ipynb
+*.json
+*.pkl
+*.npy
+*.pyc
+tensorboard_logs/*
+*.pth
+evaluation/*
+data/*
+*.pth
