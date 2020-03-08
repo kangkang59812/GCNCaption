@@ -3,73 +3,25 @@ from torch import nn
 from torch.nn import functional as F
 import numpy as np
 from models.transformer.attention import MultiHeadAttention
-from models.transformer.utils import sinusoid_encoding_table, PositionWiseFeedForward
-from models.containers import Module, ModuleList
 from .basedecoder import BaseDecoder
 
-
-class MeshedDecoderLayer(Module):
-    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.1, self_att_module=None,
-                 enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
-        super(MeshedDecoderLayer, self).__init__()
-
-        self.pwff = PositionWiseFeedForward(d_model, d_ff, dropout)
-
-        self.fc_alpha1 = nn.Linear(d_model + d_model, d_model)
-        self.fc_alpha2 = nn.Linear(d_model + d_model, d_model)
-        #self.fc_alpha3 = nn.Linear(d_model + d_model, d_model)
-
-        self.init_weights()
-
-    def init_weights(self):
-        nn.init.xavier_uniform_(self.fc_alpha1.weight)
-        nn.init.xavier_uniform_(self.fc_alpha2.weight)
-        # nn.init.xavier_uniform_(self.fc_alpha3.weight)
-        nn.init.constant_(self.fc_alpha1.bias, 0)
-        nn.init.constant_(self.fc_alpha2.bias, 0)
-        #nn.init.constant_(self.fc_alpha3.bias, 0)
-
-    def forward(self, input, enc_output, mask_pad, mask_self_att, mask_enc_att):
-        self_att = self.self_att(input, input, input, mask_self_att)
-        self_att = self_att * mask_pad
-
-        enc_att1 = self.enc_att(
-            self_att, enc_output[:, 0], enc_output[:, 0], mask_enc_att) * mask_pad
-        enc_att2 = self.enc_att(
-            self_att, enc_output[:, 1], enc_output[:, 1], mask_enc_att) * mask_pad
-        # enc_att3 = self.enc_att(
-        #     self_att, enc_output[:, 2], enc_output[:, 2], mask_enc_att) * mask_pad
-
-        alpha1 = torch.sigmoid(self.fc_alpha1(
-            torch.cat([self_att, enc_att1], -1)))
-        alpha2 = torch.sigmoid(self.fc_alpha2(
-            torch.cat([self_att, enc_att2], -1)))
-        # alpha3 = torch.sigmoid(self.fc_alpha3(
-        #     torch.cat([self_att, enc_att3], -1)))
-
-        enc_att = (enc_att1 * alpha1 + enc_att2 *
-                   alpha2) / np.sqrt(2)
-        enc_att = enc_att * mask_pad
-
-        ff = self.pwff(enc_att)
-        ff = ff * mask_pad
-        return ff
-
-
 class TriLSTM(BaseDecoder):
-    def __init__(self, vocab_size, max_len, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.1,
+    def __init__(self, vocab_size, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.3,
                  self_att_module=None, enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
         super(TriLSTM, self).__init__()
         self.d_model = d_model
+        self.padding_idx = padding_idx
+        
         self.word_emb = nn.Embedding(
             vocab_size, d_model, padding_idx=padding_idx)
-
+        self.vocab_size = vocab_size
         # 输出
-        self.fc = nn.Linear(d_model, vocab_size, bias=False)
+        self.dropout = nn.Dropout(p=dropout)
+        self.fc = nn.Linear(d_model, vocab_size)
 
         # 上
         self.att_lstm = nn.LSTMCell(
-            self.d_model*3, self.d_model*2)  # we, fc, h^2_t-1
+            self.d_model*3, self.d_model)  # we, fc, h^2_t-1
         self.attention_top = MultiHeadAttention(d_model, d_k, d_v, h, dropout, can_be_stateful=False,
                                                 attention_module=enc_att_module,               attention_module_kwargs=enc_att_module_kwargs)
         # 中
@@ -80,44 +32,73 @@ class TriLSTM(BaseDecoder):
         # 下
         self.lang_lstm = nn.LSTMCell(
             self.d_model*4, self.d_model)  # h2t-1,h3t-1,x,v平均
-        self.self_att = MultiHeadAttention(d_model, d_k, d_v, h, dropout, can_be_stateful=True,
-                                           attention_module=self_att_module,
-                                           attention_module_kwargs=self_att_module_kwargs)
 
-        self.max_len = max_len
-        self.padding_idx = padding_idx
+        
 
-    def _forward(self, encoder_output, mask_encoder):
+    def init_hidden(self, bsz):
+        weight = next(self.parameters())
+        return (weight.new_zeros(3, bsz, 512),
+                weight.new_zeros(3, bsz, 512))
+
+    def _forward(self, seq, encoder_output, mask_encoder):
         # input (b_s, seq_len)
-        b_s, seq_len = input.shape[:2]
-        # (b_s, seq_len, 1)
-        mask_queries = (input != self.padding_idx).unsqueeze(-1).float()
-        mask_self_attention = torch.triu(torch.ones(
-            (seq_len, seq_len), dtype=torch.uint8, device=input.device), diagonal=1)
-        mask_self_attention = mask_self_attention.unsqueeze(
-            0).unsqueeze(0)  # (1, 1, seq_len, seq_len)
-        mask_self_attention = mask_self_attention + \
-            (input == self.padding_idx).unsqueeze(1).unsqueeze(1).byte()
-        mask_self_attention = mask_self_attention.gt(
-            0)  # (b_s, 1, seq_len, seq_len)
-        if self._is_stateful:
-            self.running_mask_self_attention = torch.cat(
-                [self.running_mask_self_attention, mask_self_attention], -1)
-            mask_self_attention = self.running_mask_self_attention
+        seq = self.word_emb(input)
+        b_s, seq_len = seq.shape[:2]
 
-        seq = torch.arange(1, seq_len + 1).view(1, -
-                                                1).expand(b_s, -1).to(input.device)  # (b_s, seq_len)
-        seq = seq.masked_fill(mask_queries.squeeze(-1) == 0, 0)
-        if self._is_stateful:
-            self.running_seq.add_(1)
-            seq = self.running_seq
+        state = self.init_hidden(b_s)
 
-        out = self.word_emb(input)
-        self_att = self.self_att(input, input, input, mask_self_attention)
-        self_att = self_att * mask_queries
+        outputs = encoder_output.new_zeros(
+            b_s, seq_len - 1, self.vocab_size)
 
-        out = l(out, encoder_output,
-                mask_queries, mask_self_attention, mask_encoder)
+        for i in range(seq_len - 1):
 
-        out = self.fc(out)
-        return F.log_softmax(out, dim=-1)
+            it = seq[:, i].clone()
+            # break if all the sequences end
+            if i >= 1 and seq[:, i].sum() == 0:
+                break
+            ####################################################
+            prev_h1, prev_h2 = state[0][1], state[0][2]
+            base_feats, gcn_feats = torch.split(encoder_output, 1, dim=1)
+            base_feats, gcn_feats = base_feats.squeeze(1), gcn_feats.squeeze(1)
+            fc_feats = torch.sum(base_feats, dim=1)/base_feats.shape[1]
+
+            att_lstm_input = torch.cat([it, fc_feats, prev_h1, prev_h2], 1)
+
+            h_lang, c_lang = self.lang_lstm(
+                att_lstm_input, (state[0][0], state[1][0]))
+
+            # h_att； 融合过的节点特征，融合过的边特征
+            gcn_att = self.attention_middle(
+                gcn_feats, gcn_feats, gcn_feats, attention_mask=mask_encoder)
+            gcn_att = torch.sum(gcn_att, dim=1)
+
+            gcn_lstm_input = torch.cat([gcn_att, h_lang], 1)
+
+            h_gcn, c_gcn = self.gcn_lstm(
+                gcn_lstm_input, (state[0][1], state[1][1]))
+
+            base_att = self.attention_top(
+                base_feats, base_feats, base_feats, attention_mask=mask_encoder)
+
+            base_att = torch.sum(base_att, dim=1)
+
+            ctx_input = torch.cat([base_att, h_gcn, h_lang], 1)
+
+            h_att, c_att = self.att_lstm(
+                ctx_input, (state[0][2], state[1][2]))
+
+            state = (torch.stack([h_lang, h_gcn, h_att]),
+                     torch.stack([c_lang, c_gcn, c_att]))
+
+            logprobs = F.log_softmax(self.fc(self.dropout(h_att)), dim=-1)
+
+            outputs[:, i] = logprobs
+
+        return outputs
+
+seq = torch.randint(0,30,(16,13))
+encoder_output = torch.rand(16,2,50,512)
+mask_encoder = torch.ones(16,50)
+
+model = TriLSTM()
+model(seq,encoder_output,mask_encoder)

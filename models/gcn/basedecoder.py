@@ -16,8 +16,8 @@ class BaseDecoder(nn.Module):
     # calls beam_step and returns the final set of beams
     # augments log-probabilities with diversity terms when number of groups > 1
 
-    def forward(self, visual, mask, mode='forward'):
-        return getattr(self, '_'+mode)(visual, mask)
+    def forward(self, seq,  visual, mask, mode='forward'):
+        return getattr(self, '_'+mode)(seq, visual, mask)
 
     def beam_search(self, init_state, init_logprobs, *args, **kwargs):
 
