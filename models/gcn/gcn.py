@@ -24,10 +24,10 @@ class GcnTransformer(CaptioningModel):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, images, selfbbox, bbox, seq, *args):
+    def forward(self, images, selfbbox, bbox, seq=None, mode='forward'):
         enc_output, mask_enc = self.encoder(
             images, selfbbox, bbox)
-        dec_output = self.decoder(seq, enc_output, mask_enc)
+        dec_output = self.decoder(seq, enc_output, mask_enc, mode)
         return dec_output
 
     def init_state(self, b_s, device):

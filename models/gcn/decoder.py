@@ -29,7 +29,7 @@ class MeshedDecoderLayer(Module):
     def init_weights(self):
         nn.init.xavier_uniform_(self.fc_alpha1.weight)
         nn.init.xavier_uniform_(self.fc_alpha2.weight)
-        #nn.init.xavier_uniform_(self.fc_alpha3.weight)
+        # nn.init.xavier_uniform_(self.fc_alpha3.weight)
         nn.init.constant_(self.fc_alpha1.bias, 0)
         nn.init.constant_(self.fc_alpha2.bias, 0)
         #nn.init.constant_(self.fc_alpha3.bias, 0)
@@ -83,7 +83,7 @@ class MeshedDecoder(Module):
                             torch.zeros((1, 1, 0)).byte())
         self.register_state('running_seq', torch.zeros((1,)).long())
 
-    def forward(self, input, encoder_output, mask_encoder):
+    def forward(self, input, encoder_output, mask_encoder, mode='forward'):
         # input (b_s, seq_len)
         b_s, seq_len = input.shape[:2]
         # (b_s, seq_len, 1)

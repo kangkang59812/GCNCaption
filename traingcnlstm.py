@@ -5,7 +5,7 @@ from data import COCO, DataLoader
 import evaluation
 from evaluation import PTBTokenizer, Cider
 # from models.transformer import Transformer, MemoryAugmentedEncoder, MeshedDecoder, ScaledDotProductAttentionMemory
-from models.gcn import GcnTransformer, RelationEncoder, MeshedDecoder
+from models.gcn import GcnTransformer, RelationEncoder, TriLSTM
 import torch
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
@@ -60,8 +60,7 @@ def evaluate_metrics(model, dataloader, text_field):
                 device), args[0][0][1].to(device), args[0][0][2].to(device)
             caps_gt = args[0][1]
             with torch.no_grad():
-                out, _ = model.beam_search(
-                    images, selfbboxes, bboxes, 20, text_field.vocab.stoi['<eos>'], 5, out_size=1)
+                out, _ = model(images, selfbboxes, bboxes, mode='sample')
             caps_gen = text_field.decode(out, join_words=False)
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
                 gen_i = ' '.join([k for k, g in itertools.groupby(gen_i)])
@@ -84,7 +83,6 @@ def train_xe(model, dataloader, optim, text_field):
         for it, *args in enumerate(dataloader):
             detections, selfbboxes, bboxes, captions = args[0][0].to(
                 device), args[0][1].to(device), args[0][2].to(device), args[0][3].to(device)
-            
             out = model(detections, selfbboxes, bboxes, captions)
             optim.zero_grad()
             captions_gt = captions[:, 1:].contiguous()
@@ -155,15 +153,15 @@ def train_scst(model, dataloader, optim, cider, text_field):
 
 
 if __name__ == '__main__':
-    device = torch.device('cuda:1')
+    device = torch.device('cuda')
     parser = argparse.ArgumentParser(description='Meshed-Memory Transformer')
-    parser.add_argument('--exp_name', type=str, default='gcn_transformer')
-    parser.add_argument('--batch_size', type=int, default=40)
+    parser.add_argument('--exp_name', type=str, default='TriLSTM')
+    parser.add_argument('--batch_size', type=int, default=20)
     parser.add_argument('--workers', type=int, default=0)
     parser.add_argument('--m', type=int, default=40)
     parser.add_argument('--head', type=int, default=8)
     parser.add_argument('--warmup', type=int, default=10000)
-    parser.add_argument('--resume_last', action='store_true', default=True)
+    parser.add_argument('--resume_last', action='store_true')
     parser.add_argument('--resume_best', action='store_true')
     parser.add_argument('--features_path', type=str,
                         default='/home/lkk/code/self-critical.pytorch/data/cocobu_att')
@@ -171,7 +169,7 @@ if __name__ == '__main__':
                         default='/home/lkk/code/meshed-memory-transformer/annotations')
     parser.add_argument('--logs_folder', type=str, default='tensorboard_logs')
     parser.add_argument('--save_folder', type=str,
-                        default='/home/lkk/code/meshed-memory-transformer/saved_models0-5')
+                        default='/home/lkk/code/meshed-memory-transformer/saved_trimodels0-5')
     args = parser.parse_args()
     print(args)
     if not os.path.exists(args.save_folder):
@@ -206,8 +204,7 @@ if __name__ == '__main__':
 
     # Model and dataloaders
     encoder = RelationEncoder()
-    decoder = MeshedDecoder(len(text_field.vocab), 54,
-                            3, text_field.vocab.stoi['<pad>'])
+    decoder = TriLSTM(len(text_field.vocab), text_field.vocab.stoi['<pad>'])
     model = GcnTransformer(
         text_field.vocab.stoi['<bos>'], encoder, decoder).to(device)
 
@@ -255,6 +252,7 @@ if __name__ == '__main__':
             use_rl = data['use_rl']
             print('Resuming from epoch %d, validation loss %f, and best cider %f' % (
                 data['epoch'], data['val_loss'], data['best_cider']))
+            del data
 
     print("Training starts")
     for e in range(start_epoch, start_epoch + 100):

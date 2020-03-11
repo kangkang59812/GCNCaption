@@ -128,7 +128,7 @@ class RelationEncoder(nn.Module):
         outs.append(x.unsqueeze(1))
         outs.append(torch.stack(xx.split(nums, dim=0), dim=0).unsqueeze(1))
         outs = torch.cat(outs, 1)
-        return outs, mask
+        return outs, attention_mask
 
 
 if __name__ == "__main__":

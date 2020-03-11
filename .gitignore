@@ -8,3 +8,4 @@ tensorboard_logs/*
 evaluation/*
 data/*
 *.pth
+debug*
