@@ -6,7 +6,7 @@ from .relation import Relationshipness
 
 
 class RelationEncoder(nn.Module):
-    def __init__(self, padding_idx=0, d_in=2048, d_model=512, box_dim=8, dropout=0.1, rela_threshold=0.5, use_relaAtt=True, use_pos=True):
+    def __init__(self, padding_idx=0, d_in=2048, d_model=512, box_dim=8, dropout=0.1, rela_threshold=0.6, use_relaAtt=True, use_pos=True):
         super(RelationEncoder, self).__init__()
         self.d_model = d_model
         self.use_relaAtt = use_relaAtt
@@ -128,7 +128,7 @@ class RelationEncoder(nn.Module):
         outs.append(x.unsqueeze(1))
         outs.append(torch.stack(xx.split(nums, dim=0), dim=0).unsqueeze(1))
         outs = torch.cat(outs, 1)
-        return outs, attention_mask
+        return outs, mask
 
 
 if __name__ == "__main__":

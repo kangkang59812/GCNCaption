@@ -34,7 +34,7 @@ class GcnTransformer(CaptioningModel):
         return [torch.zeros((b_s, 0), dtype=torch.long, device=device),
                 None, None]
 
-    def step(self, t, prev_output, visual, selfbbox, bbox, seq, mode='teacher_forcing', **kwargs):
+    def step(self, t, prev_output, visual, selfbbox, bbox, seq, state=None, mode='teacher_forcing', **kwargs):
         it = None
         if mode == 'teacher_forcing':
             raise NotImplementedError
@@ -48,7 +48,10 @@ class GcnTransformer(CaptioningModel):
                 else:
                     it = visual[0].data.new_full(
                         (visual[0].shape[0], 1), self.bos_idx).long()
+
+                return self.decoder(it, self.enc_output, self.mask_enc, state=state, mode=mode)
+
             else:
                 it = prev_output
 
-        return self.decoder(it, self.enc_output, self.mask_enc)
+        return self.decoder(it, self.enc_output, self.mask_enc, state=state, mode=mode)

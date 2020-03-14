@@ -30,7 +30,7 @@ class BeamSearch(object):
 
         return fn
 
-    def _expand_visual(self, visual: utils.TensorOrSequence, selfbboxes: utils.TensorOrSequence, bboxes: utils.TensorOrSequence, cur_beam_size: int, selected_beam: torch.Tensor):
+    def _expand_visual(self, visual: utils.TensorOrSequence, selfbboxes: utils.TensorOrSequence, bboxes: utils.TensorOrSequence, state, cur_beam_size: int, selected_beam: torch.Tensor):
         if isinstance(visual, torch.Tensor):
             visual_shape = visual.shape
             visual_exp_shape = (self.b_s, cur_beam_size) + visual_shape[1:]
@@ -46,7 +46,8 @@ class BeamSearch(object):
                 visual_exp, 1, selected_beam_exp).view(visual_red_shape)
 
             selfbboxes_shape = selfbboxes.shape
-            selfbboxes_exp_shape = (self.b_s, cur_beam_size) + selfbboxes_shape[1:]
+            selfbboxes_exp_shape = (
+                self.b_s, cur_beam_size) + selfbboxes_shape[1:]
             selfbboxes_red_shape = (
                 self.b_s * self.beam_size,) + selfbboxes_shape[1:]
             selected_beam_red_size = (
@@ -71,6 +72,46 @@ class BeamSearch(object):
                 selected_beam_red_size).expand(selected_beam_exp_size)
             bboxes = torch.gather(
                 bboxes_exp, 1, selected_beam_exp).view(bboxes_red_shape)
+
+            h1, h2, h3 = state[0][0].unsqueeze(1), state[0][1].unsqueeze(1), state[0][2].unsqueeze(1)
+            c1, c2, c3 = state[1][0].unsqueeze(1), state[1][1].unsqueeze(1), state[1][2].unsqueeze(1)
+            h = []
+            c = []
+            for s in (h1, h2, h3):
+                s_shape = s.shape
+                s_exp_shape = (self.b_s, cur_beam_size) + s_shape[1:]
+                s_red_shape = (
+                    self.b_s * self.beam_size,) + s_shape[1:]
+                selected_beam_red_size = (
+                    self.b_s, self.beam_size) + tuple(1 for _ in range(len(s_exp_shape) - 2))
+                selected_beam_exp_size = (
+                    self.b_s, self.beam_size) + s_exp_shape[2:]
+                s_exp = s.view(s_exp_shape)
+                selected_beam_exp = selected_beam.view(
+                    selected_beam_red_size).expand(selected_beam_exp_size)
+                new_s = torch.gather(
+                    s_exp, 1, selected_beam_exp).view(s_red_shape)
+                h.append(new_s.squeeze(1))
+
+            for s in (c1, c2, c3):
+                s_shape = s.shape
+                s_exp_shape = (self.b_s, cur_beam_size) + s_shape[1:]
+                s_red_shape = (
+                    self.b_s * self.beam_size,) + s_shape[1:]
+                selected_beam_red_size = (
+                    self.b_s, self.beam_size) + tuple(1 for _ in range(len(s_exp_shape) - 2))
+                selected_beam_exp_size = (
+                    self.b_s, self.beam_size) + s_exp_shape[2:]
+                s_exp = s.view(s_exp_shape)
+                selected_beam_exp = selected_beam.view(
+                    selected_beam_red_size).expand(selected_beam_exp_size)
+                new_s = torch.gather(
+                    s_exp, 1, selected_beam_exp).view(s_red_shape)
+                c.append(new_s.squeeze(1))
+            h = torch.stack(h)
+            c = torch.stack(c)
+            state = (h, c)
+
         else:
             new_visual = []
             for im in visual:
@@ -89,7 +130,7 @@ class BeamSearch(object):
                     visual_exp, 1, selected_beam_exp).view(visual_red_shape)
                 new_visual.append(new_im)
             visual = tuple(new_visual)
-        return visual, selfbboxes, bboxes
+        return visual, selfbboxes, bboxes, state
 
     def apply(self, visual: utils.TensorOrSequence, selfbboxes: utils.TensorOrSequence, bboxes: utils.TensorOrSequence, out_size=1, return_probs=False, **kwargs):
         self.b_s = utils.get_batch_size(visual)
@@ -105,8 +146,10 @@ class BeamSearch(object):
         outputs = []
         with self.model.statefulness(self.b_s):
             for t in range(self.max_len):
-                visual, selfbboxes, bboxes, outputs = self.iter(
-                    t, visual, selfbboxes, bboxes, outputs, return_probs, **kwargs)
+                if t == 0:
+                    state = None
+                visual, selfbboxes, bboxes, state, outputs = self.iter(
+                    t, visual, selfbboxes, bboxes, state, outputs, return_probs, **kwargs)
 
         # Sort result
         seq_logprob, sort_idxs = torch.sort(
@@ -141,11 +184,10 @@ class BeamSearch(object):
                                                           :self.beam_size], selected_idx[:, :self.beam_size]
         return selected_idx, selected_logprob
 
-    def iter(self, t: int, visual: utils.TensorOrSequence, selfbboxes: utils.TensorOrSequence, bboxes: utils.TensorOrSequence, outputs, return_probs, **kwargs):
+    def iter(self, t: int, visual: utils.TensorOrSequence, selfbboxes: utils.TensorOrSequence, bboxes: utils.TensorOrSequence, state, outputs, return_probs, **kwargs):
         cur_beam_size = 1 if t == 0 else self.beam_size
-
-        word_logprob = self.model.step(
-            t, self.selected_words, visual, selfbboxes, bboxes, None, mode='feedback', **kwargs)
+        word_logprob, state = self.model.step(
+            t, self.selected_words, visual, selfbboxes, bboxes, None, state=state, mode='feedback', **kwargs)
         word_logprob = word_logprob.view(self.b_s, cur_beam_size, -1)
         candidate_logprob = self.seq_logprob + word_logprob
 
@@ -169,8 +211,8 @@ class BeamSearch(object):
 
         self.model.apply_to_states(
             self._expand_state(selected_beam, cur_beam_size))
-        visual, selfbboxes, bboxes = self._expand_visual(
-            visual, selfbboxes, bboxes, cur_beam_size, selected_beam)
+        visual, selfbboxes, bboxes, state = self._expand_visual(
+            visual, selfbboxes, bboxes, state, cur_beam_size, selected_beam)
 
         self.seq_logprob = selected_logprob.unsqueeze(-1)
         self.seq_mask = torch.gather(
@@ -196,4 +238,4 @@ class BeamSearch(object):
         self.log_probs.append(this_word_logprob)
         self.selected_words = selected_words.view(-1, 1)
 
-        return visual, selfbboxes, bboxes, outputs
+        return visual, selfbboxes, bboxes, state, outputs

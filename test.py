@@ -1,8 +1,10 @@
 import random
-from data import ImageDetectionsField, TextField, RawField
+from data import TextField, RawField
 from data import COCO, DataLoader
+from data import GcnImageDetectionsField as ImageDetectionsField
 import evaluation
-from models.transformer import Transformer, MemoryAugmentedEncoder, MeshedDecoder, ScaledDotProductAttentionMemory
+# from models.transformer import Transformer, MemoryAugmentedEncoder, MeshedDecoder, ScaledDotProductAttentionMemory
+from models.gcn import GcnTransformer, RelationEncoder, TriLSTM
 import torch
 from tqdm import tqdm
 import argparse
@@ -20,10 +22,12 @@ def predict_captions(model, dataloader, text_field):
     gen = {}
     gts = {}
     with tqdm(desc='Evaluation', unit='it', total=len(dataloader)) as pbar:
-        for it, (images, caps_gt) in enumerate(iter(dataloader)):
-            images = images.to(device)
+        for it, *args in enumerate(iter(dataloader)):
+            images, selfbboxes, bboxes = args[0][0][0].to(
+                device), args[0][0][1].to(device), args[0][0][2].to(device)
+            caps_gt = args[0][1]
             with torch.no_grad():
-                out, _ = model.beam_search(images, 20, text_field.vocab.stoi['<eos>'], 5, out_size=1)
+                out, _ = model.beam_search(images,selfbboxes, bboxes, 20, text_field.vocab.stoi['<eos>'], 5, out_size=1)
             caps_gen = text_field.decode(out, join_words=False)
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
                 gen_i = ' '.join([k for k, g in itertools.groupby(gen_i)])
@@ -65,12 +69,12 @@ if __name__ == '__main__':
     text_field.vocab = pickle.load(open('vocab.pkl', 'rb'))
 
     # Model and dataloaders
-    encoder = MemoryAugmentedEncoder(3, 0, attention_module=ScaledDotProductAttentionMemory,
-                                     attention_module_kwargs={'m': 40})
-    decoder = MeshedDecoder(len(text_field.vocab), 54, 3, text_field.vocab.stoi['<pad>'])
-    model = Transformer(text_field.vocab.stoi['<bos>'], encoder, decoder).to(device)
+    encoder = RelationEncoder()
+    decoder = TriLSTM(len(text_field.vocab), text_field.vocab.stoi['<pad>'])
+    model = GcnTransformer(
+        text_field.vocab.stoi['<bos>'], encoder, decoder).to(device)
 
-    data = torch.load('/home/lkk/code/meshed-memory-transformer/saved_models/m2_transformer_best.pth')
+    data = torch.load('/home/lkk/code/meshed-memory-transformer/saved_trimodels0-6/TriLSTM_best.pth')
     model.load_state_dict(data['state_dict'])
 
     dict_dataset_test = test_dataset.image_dictionary({'image': image_field, 'text': RawField()})
