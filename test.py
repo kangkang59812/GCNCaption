@@ -46,8 +46,8 @@ if __name__ == '__main__':
     device = torch.device('cuda')
 
     parser = argparse.ArgumentParser(description='Meshed-Memory Transformer')
-    parser.add_argument('--batch_size', type=int, default=10)
-    parser.add_argument('--workers', type=int, default=0)
+    parser.add_argument('--batch_size', type=int, default=20)
+    parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--features_path', type=str,
                         default='/home/lkk/code/self-critical.pytorch/data/cocobu_att')
     parser.add_argument('--annotation_folder', type=str,
@@ -74,7 +74,7 @@ if __name__ == '__main__':
     model = GcnTransformer(
         text_field.vocab.stoi['<bos>'], encoder, decoder).to(device)
 
-    data = torch.load('/home/lkk/code/meshed-memory-transformer/saved_trimodels0-6/TriLSTM_best.pth')
+    data = torch.load('/home/lkk/code/meshed-memory-transformer/saved_trimodels0-7/TriLSTM2_best.pth')
     model.load_state_dict(data['state_dict'])
 
     dict_dataset_test = test_dataset.image_dictionary({'image': image_field, 'text': RawField()})

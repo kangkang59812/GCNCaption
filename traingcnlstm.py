@@ -157,13 +157,13 @@ def train_scst(model, dataloader, optim, cider, text_field):
 if __name__ == '__main__':
     device = torch.device('cuda:1')
     parser = argparse.ArgumentParser(description='Meshed-Memory Transformer')
-    parser.add_argument('--exp_name', type=str, default='TriLSTM')
+    parser.add_argument('--exp_name', type=str, default='TriLSTM2')
     parser.add_argument('--batch_size', type=int, default=40)
     parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--m', type=int, default=40)
     parser.add_argument('--head', type=int, default=8)
     parser.add_argument('--warmup', type=int, default=10000)
-    parser.add_argument('--resume_last', action='store_true', default='true')
+    parser.add_argument('--resume_last', action='store_true',default='true')
     parser.add_argument('--resume_best', action='store_true')
     parser.add_argument('--features_path', type=str,
                         default='/home/lkk/code/self-critical.pytorch/data/cocobu_att')
@@ -171,7 +171,7 @@ if __name__ == '__main__':
                         default='/home/lkk/code/meshed-memory-transformer/annotations')
     parser.add_argument('--logs_folder', type=str, default='tensorboard_logs')
     parser.add_argument('--save_folder', type=str,
-                        default='/home/lkk/code/meshed-memory-transformer/saved_trimodels0-6')
+                        default='/home/lkk/code/meshed-memory-transformer/saved_trimodels0-7')
     args = parser.parse_args()
     print(args)
     if not os.path.exists(args.save_folder):

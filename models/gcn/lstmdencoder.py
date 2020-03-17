@@ -128,24 +128,28 @@ class TriLSTM(Module):
         h_lang, c_lang = self.lang_lstm(
             att_lstm_input, (state[0][0], state[1][0]))
 
+        # 顺序问题
+        base_att = self.attention_top(
+            h_lang, base_feats, base_feats, mask_encoder)
+
+        #base_att = torch.sum(base_att, dim=1)/nums
+
+        ctx_input = torch.cat([base_att, h_lang, h_lang], 1)
+
+        h_att, c_att = self.att_lstm(ctx_input, (state[0][2], state[1][2]))
+
         gcn_att = self.attention_middle(
-            h_lang, gcn_feats, gcn_feats, mask_encoder)
+            h_att, gcn_feats, gcn_feats, mask_encoder)
         #gcn_att = torch.sum(gcn_att, dim=1)/nums
 
-        gcn_lstm_input = torch.cat([gcn_att, h_lang], 1)
+        gcn_lstm_input = torch.cat([gcn_att, h_att], 1)
 
         h_gcn, c_gcn = self.gcn_lstm(
             gcn_lstm_input, (state[0][1], state[1][1]))
 
-        base_att = self.attention_top(
-            h_gcn, base_feats, base_feats, mask_encoder)
+        
 
-        #base_att = torch.sum(base_att, dim=1)/nums
-
-        ctx_input = torch.cat([base_att, h_gcn, h_lang], 1)
-
-        h_att, c_att = self.att_lstm(ctx_input, (state[0][2], state[1][2]))
-
+        # 顺序问题
         state = (torch.stack([h_lang, h_gcn, h_att]),
                  torch.stack([c_lang, c_gcn, c_att]))
 
