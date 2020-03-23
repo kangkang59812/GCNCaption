@@ -25,6 +25,13 @@ torch.manual_seed(1234)
 np.random.seed(1234)
 
 
+def clip_gradient(optimizer, grad_clip=0.1):
+    for group in optimizer.param_groups:
+        for param in group['params']:
+            if param.requires_grad is True:
+                param.grad.data.clamp_(-grad_clip, grad_clip)
+
+
 def evaluate_loss(model, dataloader, loss_fn, text_field):
     # Validation loss
     model.eval()
@@ -92,7 +99,7 @@ def train_xe(model, dataloader, optim, text_field):
             loss = loss_fn(out.view(-1, len(text_field.vocab)),
                            captions_gt.view(-1))
             loss.backward()
-
+            clip_gradient(optim)
             optim.step()
             this_loss = loss.item()
             running_loss += this_loss
@@ -157,13 +164,13 @@ def train_scst(model, dataloader, optim, cider, text_field):
 if __name__ == '__main__':
     device = torch.device('cuda:1')
     parser = argparse.ArgumentParser(description='Meshed-Memory Transformer')
-    parser.add_argument('--exp_name', type=str, default='TriLSTM2')
+    parser.add_argument('--exp_name', type=str, default='TriLSTM')
     parser.add_argument('--batch_size', type=int, default=40)
     parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--m', type=int, default=40)
     parser.add_argument('--head', type=int, default=8)
     parser.add_argument('--warmup', type=int, default=10000)
-    parser.add_argument('--resume_last', action='store_true',default='true')
+    parser.add_argument('--resume_last', action='store_true')
     parser.add_argument('--resume_best', action='store_true')
     parser.add_argument('--features_path', type=str,
                         default='/home/lkk/code/self-critical.pytorch/data/cocobu_att')
@@ -171,7 +178,7 @@ if __name__ == '__main__':
                         default='/home/lkk/code/meshed-memory-transformer/annotations')
     parser.add_argument('--logs_folder', type=str, default='tensorboard_logs')
     parser.add_argument('--save_folder', type=str,
-                        default='/home/lkk/code/meshed-memory-transformer/saved_trimodels0-7')
+                        default='/home/lkk/code/meshed-memory-transformer/saved_trimodels0-6')
     args = parser.parse_args()
     print(args)
     if not os.path.exists(args.save_folder):

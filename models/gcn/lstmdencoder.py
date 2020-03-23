@@ -57,8 +57,11 @@ class TriLSTM(Module):
         self.d_model = d_model
         self.padding_idx = padding_idx
         self.seq_length = max_len
-        self.word_emb = nn.Embedding(
-            vocab_size, d_model, padding_idx=padding_idx)
+        self.word_emb = nn.Sequential(nn.Embedding(
+            vocab_size, d_model, padding_idx=padding_idx),
+            nn.ReLU(),
+            nn.Dropout(dropout))
+
         self.vocab_size = vocab_size
         # 输出
         self.dropout = nn.Dropout(p=dropout)
@@ -75,6 +78,31 @@ class TriLSTM(Module):
         # 下
         self.lang_lstm = nn.LSTMCell(
             self.d_model*4, self.d_model)  # h2t-1,h3t-1,x,v平均
+        self.init_weight()
+
+    def init_weight(self):
+        initrange = 0.1
+        self.embed[0].weight.data.uniform_(-initrange, initrange)
+        nn.init.orthogonal_(self.att_lstm.weight_hh,
+                            gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.att_lstm.weight_ih,
+                            gain=nn.init.calculate_gain('relu'))
+        nn.init.constant_(self.att_lstm.bias_hh, 0)
+        nn.init.constant_(self.att_lstm.bias_ih, 0)
+
+        nn.init.orthogonal_(self.lang_lstm.weight_hh,
+                            gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.lang_lstm.weight_ih,
+                            gain=nn.init.calculate_gain('relu'))
+        nn.init.constant_(self.lang_lstm.bias_hh, 0)
+        nn.init.constant_(self.lang_lstm.bias_ih, 0)
+
+        nn.init.orthogonal_(self.gcn_lstm.weight_hh,
+                            gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.gcn_lstm.weight_ih,
+                            gain=nn.init.calculate_gain('relu'))
+        nn.init.constant_(self.gcn_lstm.bias_hh, 0)
+        nn.init.constant_(self.gcn_lstm.bias_ih, 0)
 
     def init_hidden(self, bsz):
         weight = next(self.parameters())
@@ -146,8 +174,6 @@ class TriLSTM(Module):
 
         h_gcn, c_gcn = self.gcn_lstm(
             gcn_lstm_input, (state[0][1], state[1][1]))
-
-        
 
         # 顺序问题
         state = (torch.stack([h_lang, h_gcn, h_att]),

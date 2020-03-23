@@ -1,7 +1,7 @@
 from torch.nn import functional as F
 import torch
 from torch import nn
-from torch_geometric.nn import GCNConv, ChebConv  # noqa
+from torch_geometric.nn import GraphConv as GCNConv
 from .relation import Relationshipness
 
 
